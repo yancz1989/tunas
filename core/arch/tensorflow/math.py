@@ -2,7 +2,7 @@
 # @Author: yancz1989
 # @Date:   2016-05-05 21:00:55
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-05-11 16:59:02
+# @Last Modified time: 2016-05-20 20:35:57
 
 # This file implement interfaces for math operations, including linear and non-linear operation,
 # random flow, and basic convolution and recurrent operation.
@@ -11,14 +11,7 @@
 import tensorflow as tf
 import numpy as np
 from .expr import *
-
-global _EPS_
-global _FLOATX_
-global _ARCH_
-global _SESSION_
-
-def eval(x):
-    return get_session().run(x.eval)
+import tunas.core.env as env
 
 def add(x, y, name = None):
     return tf.add(x, y, name)
@@ -229,7 +222,7 @@ def srand(s):
 
 def randn(shape, _mean = 0, _std = 1.0, thr = None, dtype = None, seed = None, name = None):
     if dtype == None:
-        dtype = _FLOATX_
+        dtype = env.FLOATX
     if thr == None:
         var = tf.random_norm(shape, _mean, _std, dtype = dtype, seed = seed, name = name)
     else:
@@ -239,7 +232,7 @@ def randn(shape, _mean = 0, _std = 1.0, thr = None, dtype = None, seed = None, n
 
 def rand(shape, _min = 0, _max = 1, dtype = None, seed = None, name = None):
     if dtype == None:
-        dtype = _FLOATX_
+        dtype = env.FLOATX
     return tf.random_uniform(shape, _min, _max, dtype = dtype, seed = seed, name = name)
 
 def shuffle(x, seed = None, name = None):

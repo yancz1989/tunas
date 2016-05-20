@@ -2,9 +2,10 @@
 # @Author: yancz1989
 # @Date:   2016-05-05 21:20:45
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-05-06 14:06:08
+# @Last Modified time: 2016-05-19 18:46:43
 
 import os
+import os.path
 import sys
 import time
 import h5py
@@ -37,10 +38,9 @@ def mv(src, dst):
     shutil.move(src, dst)
 
 def rm(path):
-    # @path, string
-    if os.isfile(path):
-        os.remove(path)
-    else:
+    if os.path.isfile(path):
+        os.path.remove(path)
+    elif os.path.isdir(path):
         shutil.rmtree(path)
 
 def cp(src, dst, symlink = False, ignores = []):
@@ -63,4 +63,7 @@ def countf(path):
 def mkdir(dname):
     if not os.path.exists(dname):
         os.makedirs(dname)
+
+def dict2list(dict):
+    return [dict[key] for key in dict]
 

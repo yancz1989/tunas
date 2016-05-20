@@ -2,17 +2,15 @@
 # @Author: yancz1989
 # @Date:   2016-05-05 20:58:25
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-05-11 20:13:41
+# @Last Modified time: 2016-05-20 20:36:03
 
 # This file implement interface for optimization used for neural networks training.
+from __future__ import absolute_import, print_function, division
 
 import numpy as np
 import tensorflow as tf
-
-global _EPS_
-global _FLOATX_
-global _ARCH_
-global _SESSION_
+import tunas.core.env as env
+import tunas.core.interfaces
 
 def grad(x, y):
     # for function y = f(x), input should be function variable y and parameter
@@ -43,21 +41,19 @@ def adagrad(learning_rate, initial_accumulator_value = 0.1,
 def adadelta(learning_rate = 0.001, rho = 0.95, eps = None,
         use_lock = False):
     if eps == None:
-        eps = _EPS_
+        eps = env.EPS
     return tf.train.AdadeltaOptimizer(learning_rate, rho, eps, use_lock)
 
 def adam(learning_rate = 0.001, beta1 = 0.9, beta2 = 0.999,
         eps = None, use_locking = False):
     if eps == None:
-        eps = _EPS_
+        eps = env.EPS
     return tf.train.AdamOptimizer(learning_rate, beta1, beta1,
         eps, use_locking)
 
 # TODO: implement adamax from https://arxiv.org/pdf/1412.6980
-import sys
-sys.path.append('..')
-from .. import common
-class AdamaxOptimizer(common.Optimizer):
+
+class AdamaxOptimizer(tunas.core.interfaces.Optimizer):
     def __init__(self):
         pass
 
@@ -70,5 +66,5 @@ class AdamaxOptimizer(common.Optimizer):
     def apply_gradients(self):
         pass
 
-def adamax(objective):
-    pass
+def adamax():
+    return AdamaxOptimizer()

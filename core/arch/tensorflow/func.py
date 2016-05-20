@@ -2,7 +2,7 @@
 # @Author: yancz1989
 # @Date:   2016-05-05 21:01:09
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-05-11 16:55:04
+# @Last Modified time: 2016-05-20 20:35:53
 
 # This file implement interfaces of functions used for neural networks, including function like
 # sigmoid, softmax, normalize, mean, max, min, etc.
@@ -11,11 +11,7 @@ import tensorflow as tf
 import numpy as np
 from .expr import *
 from .math import *
-
-global _EPS_
-global _FLOATX_
-global _ARCH_
-global _SESSION_
+import tunas.core.env as env
 
 # activation function
 def relu(x):
@@ -89,12 +85,16 @@ def squred_hinge(gt, pred):
 def hinge(gt, pred):
     return mean(max(1.0 - mul(pred, gt)))
 
-def categorical_crossentropy(gt, pred):
-    predn = pred / sum(pred, dim = dims(pred) - 1, keep = True)
-    return neg(sum(gt * log(clip(predn, _EPS_, 1.0 - _EPS_)), dims(pred) - 1))
+def categorical_crossentropy(gt, pred, prob = True):
+    if prob:
+        loss = -(sum(gt * log(clip(pred / sum(pred, dim = dims(pred) - 1, keep = True),
+            env.EPS, 1.0 - env.EPS)), dims(pred) - 1))
+    else:
+        loss = tf.nn.softmax_cross_entropy_with_logits(pred, gt)
+    return loss
 
 def binary_crossentropy(gt, pred):
-    predn = clip(pred, _EPS_, 1.0 - _EPS_)
+    predn = clip(pred, env.EPS, 1.0 - env.EPS)
     return mean(tf.nn.sigmoid_cross_entropy_with_logits(
         log(predn / (1 - predn)), gt))
 

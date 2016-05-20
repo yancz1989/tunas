@@ -2,33 +2,39 @@
 # @Author: yancz1989
 # @Date:   2016-05-05 20:59:31
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-05-11 16:57:51
+# @Last Modified time: 2016-05-20 20:35:42
 
 # This file implement expression module for tunas, including variable,
 # placeholder, function and their base support interfaces.
 import tensorflow as tf
 import numpy as np
-
-global _EPS_
-global _FLOATX_
-global _ARCH_
-global _SESSION_
+import tunas.core.env as env
 
 def get_session():
-    global _SESSION_
-    return _SESSION_
+    return env.SESSION
 
-def variable(value, dtype, name):
-    var = tf.Variable(np.asarray(value, dtype = dtype), name = name)
-    get_session().run(v.initializer)
+def variable(value, dtype = env.FLOATX, trainable = True, name = None):
+    var = tf.Variable(np.asarray(value, dtype = dtype), trainable = trainable, name = name)
     return var
 
-def constant(value, shape, dtype = None, name = None):
+def init_variable(list_vars):
+    return tf.initialize_variables(list_vars)
+
+def eval(f, feed_dict = None):
+    return env.SESSION.run(f, feed_dict = feed_dict)
+
+def set_value(var, value):
+    return var.assign(value)
+
+def get_value(var):
+    return env.SESSION.run(var)
+
+def constant(value, dtype = env.FLOATX, shape = None, name = None):
     if dtype == None:
-        dtype = _FLOATX_
+        dtype = env.FLOATX
     return tf.constant(value, dtype, shape, name)
 
-def placeholder(shape, dims, dtype, name):
+def placeholder(shape = None, dims = None, dtype = env.FLOATX, name = None):
     assert (shape != None or dims != None)
     if shape == None:
         shape = [None for _ in range(dims)]
