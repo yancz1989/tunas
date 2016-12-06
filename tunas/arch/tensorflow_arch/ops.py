@@ -2,7 +2,7 @@
 # @Author: yancz1989
 # @Date:   2016-06-19 09:23:30
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-06-22 21:59:58
+# @Last Modified time: 2016-12-06 19:46:53
 
 # math expression
 # basic element-wise operator
@@ -13,9 +13,8 @@ from __future__ import absolute_import, print_function, division
 
 import tensorflow as tf
 import numpy as np
-import tunas.core.env as env
-import tunas.core.interfaces
-from tunas.core.arch.universal import _expand, _string_order, dim2d, dim3d, kernel2d, kernel3d, dim_orders, paddings
+from ..env import get_epsilon, get_floatX, get_session, get_arch
+from ..universal import _expand, _string_order, dim2d, dim3d, kernel2d, kernel3d, dim_orders, paddings
 
 def add(x, y):
   return tf.add(x, y)
@@ -46,7 +45,7 @@ def sign(x):
   return tf.sign(x)
 
 def inv(x):
-  return tf.inv(x)
+  return tf.truediv(1.0, x)
 
 def square(x):
   return tf.square(x)
@@ -219,13 +218,16 @@ def logic_xor(x, y):
   return tf.logical_xor(x, y)
 
 # random operation
-def randn(shape, _mean = 0, _std = 1.0, dtype = env.FLOATX, seed = np.random.randint(1e5)):
+def seed(seed):
+  return tf.set_random_seed(seed)
+
+def randn(shape, _mean = 0, _std = 1.0, dtype = get_floatX(), seed = np.random.randint(1e5)):
   return tf.random_norm(shape, _mean, _std, dtype = dtype, seed = seed)
 
-def rand(shape, _min = 0, _max = 1, dtype = env.FLOATX, seed = np.random.randint(1e5)):
+def rand(shape, _min = 0, _max = 1, dtype = get_floatX(), seed = np.random.randint(1e5)):
   return tf.random_uniform(shape, _min, _max, dtype = dtype, seed = seed)
 
-def binomial(shape, p, dtype = env.FLOATX, seed = np.random.randint(1e5)):
+def binomial(shape, p, dtype = get_floatX(), seed = np.random.randint(1e5)):
   return tf.select(tf.random_uniform(shape, dtype = dtype, seed=seed) <= p,
                      tf.ones(shape), tf.zeros(shape))
 
@@ -259,7 +261,7 @@ def linear(x):
   return x
 
 def batch_normalization(x, mu, sigma, gamma, beta):
-  return tf.nn.batch_normalization(x, mu, sigma, beta, gamma, variance_epsilon = env.EPS)
+  return tf.nn.batch_normalization(x, mu, sigma, beta, gamma, variance_epsilon = get_epsilon())
 
 # convolution neural networks
 def _shuffle(x, current, to):
@@ -269,7 +271,7 @@ def _shuffle(x, current, to):
 
 AR = 'tf'
 
-# border choose from 'valid' or 'same'
+# padding choose from 'valid' or 'same'
 # dim_order choose from 'NHWC' or 'NCHW'
 # If variant dim_order is not support, we use _transpose_on to transpose
 # at the beginning and the end of program to keep the input and output
@@ -281,22 +283,21 @@ AR = 'tf'
 # For 'NCHW':
 #   dim_order: nchw, i.e. batch_size, channels, height, width
 #   kernel_order: dchw, i.e. depth, channels, kernel height, kernel width
-# For 3d convolution, we adopt its usage in video recognition, as 't' stand
-# for time frame.
+# For 3d convolution, we adopt its usage in video recognition, as 't' 
+# for time frame and lies right before h
 
 def conv2d(x, kernel, strides, padding = 'same', dim_order = 'tf'):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
-  print(dim2d[dim_order])
-  return tf.nn.conv2d(x, kernel, _expand(strides),
-    padding = padding.upper(), data_format = dim2d[dim_order])
+  return tf.nn.conv2d(x, _shuffle(kernel, kernel2d[dim_order], kernel2d[AR]),
+    _expand(strides, dim_order), padding = padding.upper(), data_format = dim2d[dim_order])
 
 def conv3d(x, kernel, strides, padding = 'same', dim_order = 'tf'):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
   return _shuffle(tf.nn.conv3d(_shuffle(x, dim3d[dim_order], dim3d[AR]),
     _shuffle(kernel, kernel3d[dim_order], kernel3d[AR]),
-    _expand(strides), padding.upper()), dim3d[AR], dim3d[dim_order])
+    _expand(strides, dim3d[AR]), padding.upper()), dim3d[AR], dim3d[dim_order])
 
 # if with_arg is True, output is combined with output and argmax,
 # the latter is flattened indices of argmax.
@@ -304,29 +305,32 @@ def max_pool2d(x, pool_size, strides, padding = 'same', with_arg = False, dim_or
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
   if with_arg == False:
-    return tf.nn.max_pool(x, _expand(pool_size), _expand(strides),
+    return tf.nn.max_pool(x, _expand(pool_size, dim_order), _expand(strides, dim_order),
       padding = padding.upper(), data_format = dim2d[dim_order])
   else:
     return _shuffle(tf.nn.max_pool_with_argmax(_shuffle(x, dim2d[dim_order], dim2d[AR]),
-      _expand(pool_size), _expand(strides), padding = padding.upper()), dim2d[AR], dim2d[dim_order])
+      _expand(pool_size, dim2d[AR]), _expand(strides, dim2d[AR]),
+      padding = padding.upper()), dim2d[AR], dim2d[dim_order])
 
 def max_pool3d(x, pool_size, strides, padding = 'same', dim_order = 'ndhwc'):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
   return _shuffle(tf.nn.max_pool3d(_shuffle(x, dim3d[dim_order], dim3d[AR]),
-    _expand(pool_size), _expand(strides), padding.upper()), dim3d[AR], dim3d[dim_order])
+    _expand(pool_size, dim3d[AR]), _expand(strides, dim3d[AR]), padding.upper()), 
+    dim3d[AR], dim3d[dim_order])
 
 def avg_pool2d(x, pool_size, strides, padding = 'same', dim_order = 'ndhwc'):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
-  return tf.nn.avg_pool(x, _expand(pool_size), _expand(strides),
+  return tf.nn.avg_pool(x, _expand(pool_size, dim_order), _expand(strides, dim_order),
     padding.upper(), data_format = dim2d[dim_order])
 
 def avg_pool3d(x, pool_size, strides, padding = 'same', dim_order = 'ndhwc'):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
   return _shuffle(tf.nn.avg_pool3d(_shuffle(x, dim3d[dim_order], dim3d[AR]),
-    _expand(pool_size), _expand(strides), padding.upper()), dim3d[AR], dim3d[dim_order])
+    _expand(pool_size, dim3d[AR]), _expand(strides, dim3d[AR]), padding.upper()),
+    dim3d[AR], dim3d[dim_order])
 
 # from tensor to window slides
 def window_slides(var, ksize, strides):
@@ -363,7 +367,7 @@ def categorical_crossentropy(gt, pred, prob = False):
   if prob:
     dim = len(pred.get_shape()) - 1
     pred = tf.log(tf.clip_by_value(pred / tf.reduce_sum(pred,
-      reduction_indices = dim, keep_dims = True), env.EPS, 1 - env.EPS))
+      reduction_indices = dim, keep_dims = True), get_epsilon(), 1 - get_epsilon()))
     loss = -tf.reduce_sum(gt * pred, reduction_indices = dim)
   else:
     loss = tf.nn.softmax_cross_entropy_with_logits(pred, gt)
@@ -371,13 +375,13 @@ def categorical_crossentropy(gt, pred, prob = False):
 
 def binary_crossentropy(gt, pred, prob = False):
   if prob:
-    pred = tf.clip_by_value(pred, env.EPS, 1 - env.EPS)
+    pred = tf.clip_by_value(pred, get_epsilon(), 1 - get_epsilon())
     pred = tf.log(pred / (1 - pred))
   return tf.nn.sigmoid_cross_entropy_with_logits(pred, gt)
 
 def sparse_softmax_crossentropy(gt, pred, prob = True):
   if prob:
-    pred = tf.log(tf.clip_by_value(pred, env.EPS, 1 - env.EPS))
+    pred = tf.log(tf.clip_by_value(pred, get_epsilon(), 1 - get_epsilon()))
   return tf.sparse_softmax_cross_entropy_with_logits(pred, gt)
 
 def cosine_proximity(gt, pred):
@@ -403,23 +407,21 @@ def momentum(learning_rate = 0.1, momentum_rate = 0.9,
     momentum_rate, use_locking)
 
 def rmsprop(objective, learning_rate, decay = 0.9, momentum = 0.0,
-            eps = env.EPS, use_locking = False):
+            eps = get_epsilon(), use_locking = False):
   return tf.train.RMSPropOptimizer()
 
 def adagrad(learning_rate, initial_accumulator_value = 0.1, use_locking = False):
   return tf.train.AdagradOptimizer(learning_rate, initial_accumulator_value, use_locking)
 
-def adadelta(learning_rate = 0.001, rho = 0.95, eps = env.EPS, use_lock = False):
+def adadelta(learning_rate = 0.001, rho = 0.95, eps = get_epsilon(), use_lock = False):
   return tf.train.AdadeltaOptimizer(learning_rate, rho, eps, use_lock)
 
 def adam(learning_rate = 0.001, beta1 = 0.9, beta2 = 0.999,
-    eps = env.EPS, use_locking = False):
+    eps = get_epsilon(), use_locking = False):
   return tf.train.AdamOptimizer(learning_rate, beta1, beta1,
     eps, use_locking)
 
-# TODO: implement adamax from https://arxiv.org/pdf/1412.6980
-
-class AdamaxOptimizer(tunas.core.interfaces.Optimizer):
+class AdamaxOptimizer():
   def __init__(self):
     pass
 
@@ -434,4 +436,3 @@ class AdamaxOptimizer(tunas.core.interfaces.Optimizer):
 
 def adamax():
   return AdamaxOptimizer()
-

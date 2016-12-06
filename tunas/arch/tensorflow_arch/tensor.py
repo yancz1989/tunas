@@ -2,30 +2,26 @@
 # @Author: yancz1989
 # @Date:   2016-06-19 09:23:16
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-06-20 00:24:49
+# @Last Modified time: 2016-12-04 16:35:21
 from __future__ import absolute_import, print_function, division  
 
 import tensorflow as tf
 import numpy as np
-import tunas.core.env as env
-import tunas.core.interfaces
+from ..env import get_arch, get_session, get_floatX, get_epsilon
 
 def arch_name():
   return 'tensorflow'
 
-def _get_session():
-  return env.SESSION
-
 def release():
-  env.SESSION.close()
+  get_session().close()
 
-def variable(value, dtype = env.FLOATX, trainable = True, name = None):
+def variable(value, dtype = get_floatX(), trainable = True, name = None):
   var = tf.Variable(np.array(value, dtype = dtype), trainable = trainable, name = name)
-  _get_session().run(var.initializer)
+  get_session().run(var.initializer)
   return var
 
 def eval(f, feed_dict = None):
-  return _get_session().run(f, feed_dict = feed_dict)
+  return get_session().run(f, feed_dict = feed_dict)
 
 class Function(object):
   def __init__(self, inputs, outputs):
@@ -40,22 +36,22 @@ def function(inputs, outputs):
   return Function(inputs, outputs)
 
 def set_value(var, value):
-  _get_session().run(var.assign(value))
+  get_session().run(var.assign(value))
 
 def get_value(var):
-  return _get_session().run(var)
+  return get_session().run(var)
 
-def constant(value, dtype = env.FLOATX, shape = None, name = None):
+def constant(value, dtype = get_floatX(), shape = None, name = None):
   return tf.constant(value, dtype, shape, name = name)
 
-def placeholder(shape = None, dims = None, dtype = env.FLOATX, name = None):
+def placeholder(shape = None, dims = None, dtype = get_floatX(), name = None):
   assert (shape != None or dims != None)
   if shape == None:
     shape = [None for _ in range(dims)]
   return tf.placeholder(dtype = dtype, shape = shape, name = name)
 
 def shape(x):
-  return x.get_shape()
+  return tf.shape(x)
 
 def dims(x):
   return x.get_shape()._dims
@@ -64,17 +60,17 @@ def size(x):
   return np.prod([dim._value for dim in x.get_shape(x)])
 
 # init variable
-def zeros(shape, dtype = env.FLOATX):
+def zeros(shape, dtype = get_floatX()):
   return variable(np.zeros(shape), dtype)
 
-def ones(shape, dtype = env.FLOATX):
+def ones(shape, dtype = get_floatX()):
   return variable(np.ones(shape), dtype)
 
 def ones_like(x):
-  return tf.ones_like(x, dtype = env.FLOATX)
+  return tf.ones_like(x, dtype = get_floatX())
 
 def zeros_like(x):
-  return tf.zeros_like(x, dtype = env.FLOATX)
+  return tf.zeros_like(x, dtype = get_floatX())
 
 def fill(shape, val):
   return tf.fill(shape, val)

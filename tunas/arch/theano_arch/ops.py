@@ -2,11 +2,10 @@
 # @Author: yancz1989
 # @Date:   2016-06-19 10:52:42
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-06-22 20:31:28
+# @Last Modified time: 2016-12-06 21:30:03
 from __future__ import absolute_import, print_function, division
 
 import numpy as np
-import tunas.core.env as env
 import tunas.core.interfaces
 
 import theano
@@ -14,12 +13,11 @@ import theano.tensor as T
 import theano.tensor.nnet as nnet
 import theano.tensor.slinalg as slinalg
 from theano.tensor.signal import pool
-from theano.tensor.nnet import conv3d2d
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
+from theano.sandbox.cuda import dnn
 
-import numpy as np
-import tunas.core.env as env
-from tunas.core.arch.universal import _expand, _string_order, dim2d, dim3d, kernel2d, kernel3d, dim_orders, paddings
+import tunas.arch.env as env
+from tunas.arch.universal import _expand, _string_order, dim2d, dim3d, kernel2d, kernel3d, dim_orders, paddings
 
 # math expression
 # basic element-wise operator
@@ -209,6 +207,9 @@ def logic_not(x):
 def logic_xor(x, y):
   return T.bitwise_xor(x, y)
 
+def seed(seed):
+  np.random.seed(seed)
+
 # random operation
 def randn(shape, _mean = 0, _std = 1.0, dtype = env.FLOATX, seed = np.random.randint(1e5)):
   return RandomStreams(seed = seed).normal(size = shape, avg = _mean, std = _std, dtype = dtype)
@@ -266,63 +267,76 @@ def conv2d(x, kernel, strides = (1, 1), padding = 'same', dim_order = 'th'):
     padding = 'half'
   x = _shuffle(x, dim2d[dim_order], dim2d[AR])
   kernel = _shuffle(kernel, kernel2d[dim_order], kernel2d[AR])
-  conv = nnet.conv2d(x, kernel, subsample = strides, border_mode = padding)
+
+  if env.get_device() == '':
+    conv = nnet.conv2d(x, kernel, subsample = strides, border_mode = padding)
+  else:
+    conv = dnn.dnn_conv(x, kernel, border_mode = padding, subsample = strides)
+
   if padding == 'half':
     shape = kernel.shape.eval()
     if shape[2] % 2 == 0:
-      conv = conv[:, :, : (shape[2] + strides[0] - 1) // strides[0], :]
+      conv = conv[:, :, 1:, :]
     if shape[3] % 2 == 0:
-      conv = conv[:, :, :, : (shape[3] + strides[1] - 1) // strides[1]]
+      conv = conv[:, :, :, 1:]
   return _shuffle(conv, dim2d[AR], dim2d[dim_order])
 
 def conv3d(x, kernel, strides = (1, 1, 1), padding = 'same', dim_order = 'th'):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
+  if env.get_device() == '':
+    raise NotImplementedError
   x = _shuffle(x, dim3d[dim_order], dim3d[AR])
   kernel = _shuffle(kernel, kernel3d[dim_order], kernel3d[AR])
   if padding == 'same':
-    sp = [kernel.shape[1] - 1, kernel.shape[3] - 1, kernel.shape[4] - 1]
-    x_ = T.zeros((x.shape[0], x.shape[1] + sp[0],
-          x.shape[2], x.shape[3] + sp[1], x.shape[4] + sp[2]))
-    x = T.set_subtensor(x_[slice(None), slice(sp[0] // 2, x.shape[1] + sp[0] // 2), slice(None),
-        slice(sp[1] // 2, x.shape[2] + sp[1] // 2), slice(sp[2] // 2, x.shape[3] + sp[2] // 2)], x)
-  conv = conv3d2d.conv3d(x, kernel, border_mode = ('valid', ) * 3)
-  if strides != (1, 1, 1):
-    conv = conv[:, ::strides[0], :, ::strides[1], ::strides[2]]
+    padding = 'half'
+  conv = dnn.dnn_conv3d(x, kernel, border_mode = padding, subsample = strides)
+  if padding == 'half':
+    shp = kernel.shape.eval()
+    if shp[2] % 2 == 0:
+      conv = conv[:, :, 1:, :, :]
+    if shp[3] % 2 == 0:
+      conv = conv[:, :, :, 1:, :]
+    if shp[4] % 2 == 0:
+      conv = conv[:, :, :, :, 1:]
   return _shuffle(conv, dim3d[AR], dim3d[dim_order])
 
 def pool2d(x, pool_size, strides, padding, dim_order, mode):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
+  x = _shuffle(x, dim2d[dim_order], dim2d[AR])
   if padding == 'same':
-    pad = (pool_size[0] - 2 if pool_size[0] % 2 == 1 else pool_size[0] - 1,
-           pool_size[1] - 2 if pool_size[1] % 2 == 1 else pool_size[1] - 1)
+    shp = x.shape.eval()
+    pad = tuple([(pool_size[i] - 2) if pool_size[i] % 2 == 1 else (pool_size[i] - 1) for i in range(len(pool_size))])
+    expected = [shp[i + 2] + strides[i] - 1 // strides[i] for i in range(len(strides))]
   else:
     pad = (0, 0)
-  pool_out = pool.pool_2d(_shuffle(x, dim2d[dim_order], dim2d[AR]),
-    ds = pool_size, st = strides, ignore_border = True, padding = pad, mode = mode)
+  if env.get_device() == '':
+    pool_out = pool.pool_2d(x, ds = pool_size, st = strides, ignore_border = True, padding = pad, mode = mode)
+  else:
+    pool_out = dnn.dnn_pool(x, pool_size, stride = strides, mode = mode, pad = pad)
   if padding == 'same':
-    pool_out = pool_out[:, :, : (x.shape[2] + strides[0] - 1) // strides[0],
-                              : (x.shape[3] + strides[1] - 1) // strides[1]]
-  return _shuffle(pool_out, dim2d[dim_order], dim2d[AR])
+    pool_out = pool_out[:, :, : expected[0], : expected[1]]
+  return _shuffle(pool_out, dim2d[AR], dim2d[dim_order])
 
 # pool_size is the pool width of (time, height, width), the same with strides
 def pool3d(x, pool_size, strides, padding, dim_order, mode):
   if dim_order not in dim_orders or padding  not in paddings:
     raise Exception('Error dim_order or padding parameter.')
-  if border_mode == 'same':
-    pad = [s - 2 if s % 2 == 1 else s - 1 for s in pool_size]
+  x = _shuffle(x, dim3d[dim_order], dim3d[AR])
+  if padding == 'same':
+    shp = x.shape.eval()
+    pad = tuple([(s - 2) if s % 2 == 1 else (s - 1) for s in pool_size])
+    expected = [shp[i + 2] + strides[i] - 1 // strides[i] for i in range(len(strides))]
   else:
-    pad = [0, 0, 0]
-  dimwh = 'ntchw'
-  dimt = 'nchwt'
-  output = pool.pool_2d(_shuffle(x, dim3d[dim_order], dimwh),
-      ds = (pool_size[1], pool_size[2]), st = (strides[1], strides[2]),
-      ignore_border = True, padding = (pad[1], pad[2]), mode = mode)
-  output = pool.pool_2d(_shuffle(output, dimwh, dimt),
-      ds = (1, pool_size[0]), st = (1, strides[0]),
-      ignore_border = True, padding = (0, pad[0]), mode = mode)
-  return _shuffle(output, dimt, dim3d[dim_order])
+    pad = (0, 0, 0)
+  if env.get_device() == '':
+    raise NotImplementedError
+  else:
+    output = dnn.dnn_pool(x, pool_size, stride = strides, mode = mode, pad = pad)
+  if padding == 'same':
+    output = output[:, :, : expected[0], : expected[1], : expected[2]]
+  return _shuffle(output, dim3d[AR], dim3d[dim_order])
 
 def max_pool2d(x, pool_size, strides, padding = 'same', with_arg = False, dim_order = 'th'):
   if with_arg:
@@ -370,7 +384,7 @@ def sqr_hinge(gt, pred):
 def hinge(gt, pred):
   return mean(max(1.0 - mul(pred, gt)))
 
-def categorical_crossentropy(gt, pred, prob = True):
+def categorical_crossentropy(gt, pred, prob = False):
   if not prob:
     pred = T.nnet.softmax(pred)
   else:
@@ -381,10 +395,10 @@ def sparse_categorical_crossentropy(gt, pred, prob = True):
   return categorical_crossentropy(pred, reshape(T.extra_ops.to_one_hot(
     T.cast(T.flatten(gt), 'int32'), nb_class=pred.shape[-1]), shape(pred)), prob)
 
-def binary_crossentropy(gt, pred, prob = True):
+def binary_crossentropy(gt, pred, prob = False):
   if not prob:
     pred = T.nnet.sigmoid(pred)
-  return T.nnet.binary_crossentropy(T.clip(pred, env.EPS, 1 - env.EPS), gt)
+  return T.nnet.binary_crossentropy(T.clip(pred, env.EPS, 1.0 - env.EPS), gt)
 
 def cosine_proximity(gt, pred):
   return -mean(l2_normalize(gt, dim = 0) * l2_normalize(pred, dim = 0))
@@ -395,12 +409,18 @@ def grad(x, y):
   # variable x
   return T.grad(y, x)
 
+
+class Gradient(object):
+  def __init__(self, operator, grad):
+    pass
+    # self.operator = 
+
 # Here the optimizer is a class, which has method minimize.
 # For Theano, please implement its class and minimize method.
 
 # Here no stochastic batch generator is implemented, as you will need to
 # shuffle and write generater by your self.
-class GradientDescentOptimizer(tunas.core.interfaces.Optimizer):
+class GradientDescentOptimizer():
   def __init__(self):
     pass
 
@@ -416,7 +436,7 @@ class GradientDescentOptimizer(tunas.core.interfaces.Optimizer):
 def gd():
   return GradientDescentOptimizer()
 
-class MomentumOptimizer(tunas.core.interfaces.Optimizer):
+class MomentumOptimizer():
   def __init__(self):
     pass
 
@@ -433,7 +453,7 @@ def momentum():
   return MomentumOptimizer()
 
 # TODO: implement adam based on http://www.cs.toronto.edu/~fritz/absps/momentum.pdf
-class RMSPropOptimizer(tunas.core.interfaces.Optimizer):
+class RMSPropOptimizer():
   def __init__(self):
     pass
 
@@ -450,7 +470,7 @@ def rmsprop():
   return RMSPropOptimizer()
 
 # TODO: implement adam based on http://www.magicbroom.info/Papers/DuchiHaSi10.pdf
-class AdagradOptimizer(tunas.core.interfaces.Optimizer):
+class AdagradOptimizer():
   def __init__(self):
     pass
 
@@ -467,7 +487,7 @@ def adagrad():
   return AdagradOptimizer()
 
 # TODO: implement adam based on https://arxiv.org/pdf/1212.5701v1.pdf
-class AdadeltaOptimizer(tunas.core.interfaces.Optimizer):
+class AdadeltaOptimizer():
   def __init__(self):
     pass
 
@@ -484,7 +504,7 @@ def adadelta():
   return AdadeltaOptimizer()
 
 # TODO: implement adam based on https://arxiv.org/pdf/1412.6980.pdf
-class AdamOptimizer(tunas.core.interfaces.Optimizer):
+class AdamOptimizer():
   def __init__(self):
     pass
 
@@ -501,7 +521,7 @@ def adam():
   return AdamOptimizer()
 
 # TODO: implement adamax based on  https://arxiv.org/pdf/1412.6980
-class AdamaxOptimizer(tunas.core.interfaces.Optimizer):
+class AdamaxOptimizer():
   def __init__(self):
     pass
 

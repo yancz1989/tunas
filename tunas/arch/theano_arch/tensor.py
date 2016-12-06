@@ -2,26 +2,23 @@
 # @Author: yancz1989
 # @Date:   2016-06-19 10:52:49
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-06-20 09:21:37
+# @Last Modified time: 2016-12-04 17:03:06
 from __future__ import absolute_import, print_function, division
 
 import numpy as np
-import tunas.core.env as env
+import tunas.arch.env as env
 import tunas.core.interfaces
 
 import theano
 import theano.tensor as T
 import theano.tensor.nnet as nnet
 import theano.tensor.nnet.neighbours as nbr
+from ..env import get_arch, get_session, get_floatX, get_epsilon
 
 import numpy as np
-import tunas.core.env as env
 
 def arch_name():
   return 'theano'
-
-def get_session():
-  return None
 
 def release():
   pass
@@ -66,7 +63,7 @@ def placeholder(shape = None, dims = None, dtype = env.FLOATX, name = None):
   return T.TensorType(dtype = dtype, broadcastable = (False,) * dims)(name)
 
 def shape(x):
-  return x.shape.eval()
+  return x.shape
 
 def dims(x):
   return x.ndim
@@ -130,6 +127,10 @@ def scan(func, elements, init, opt = None, loops = None):
 def map(func, elements):
   return theano.map(fn = func, sequences = elements)
 
+# class Gradient(object):
+#   def __init__(self, operator, grad):
+#     self.operator = 
+    
 # WARNING: only matrices are accepted. idxs should be sorted with columns aggragated.
 def sparse_tensor(idxs, value, shape):
   indptr = [0]

@@ -2,208 +2,215 @@
 # @Author: yancz1989
 # @Date:   2016-05-13 10:33:42
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-06-16 10:03:18
+# @Last Modified time: 2016-12-03 21:45:40
 
-import tunas.core.arch as arch
-import tunas.util.basic as ubasic
-import dag.DirectedAcyclicGraph as DAG
+import tunas.arch as arch
+import tunas.util.tools as tools
+from .dag import DirectedAcyclicGraph as DAG, EmptyKeyError, Node
+from collections import deque, OrderedDict
+from itertools import chain
 
 class Variable(object):
-	'''
-		Variable object, contains methods of get_value and set_value
-	'''
-	def __init__(self, name = None, is_placeholder = False,
-			value = None, dtype = arch.FLOATX, shape = None):
-		self.is_placeholder = is_placeholder
-		if is_placeholder == False:
-			self._var_ = arch.variable(value, dtype, name)
-		else:
-			self._var_ =  arch.placeholder(shape, None, dtype = dtype, name)
+  '''
+    Variable object, contains methods of get_value and set_value
+  '''
+  def __init__(self, key, is_placeholder = False, value = None, 
+      dtype = arch.get_floatX(), shape = None, trainable = True):
+    if (key == None or key == ''):
+      raise EmptyKeyError
+    self.key = key
+    self.is_placeholder = is_placeholder
+    self.trainable = trainable
+    if is_placeholder == False:
+      self._var_ = arch.variable(value, dtype, key)
+    else:
+      self._var_ = arch.placeholder(shape, None, dtype, key)
 
-	def get_value(self):
-		return arch.get_value(self._var_)
+  def get_value(self):
+    return arch.get_value(self._var_)
 
-	def set_value(self, value):
-		arch.set_value(self._var_, value)
+  def set_value(self, value):
+    arch.set_value(self._var_, value)
 
-	def get_shape(self):
-		return arch.shape(self._var_)
+  def get_shape(self):
+    return arch.shape(self._var_)
 
-	def set_shape(self, shape):
-		return arch.reshape(self._var_, shape)
+  def set_shape(self, shape):
+    return arch.reshape(self._var_, shape)
 
-	def get_dims(self):
-		return len(arch.shape(self._var_))
+  def get_dims(self):
+    return len(arch.shape(self._var_))
 
-	def cast(self, dtype):
-		return tf.cast(self._var_, dtype)
+  def cast(self, dtype):
+    return tf.cast(self._var_, dtype)
 
-class Model(object):
-	'''
-		Model interface, micro-unit of entire model representation. Layer, and
-		Sequence will subclasses. Variable is stored in a dict which contains
-		key, value pairs. Method forward should be implemented to compute the
-		output, while custom backward should be implemented in backward
-		function, with new gradient applied to optimizer. New operators are
-		implemented using C++ to define a new Operation if needed, in case
-		your model is difficult for arches to figure out its gradient.
-	'''
-	def __init__(self, pre = None, post = None, input_shape = None, initializer = None, name = None):
-		assert name != None and name != ''
-		self.pre = _list(pre)
-		self.post = _list(post)
-		self.variables = {}
-		# a mathematical expression.
-		if pre == None:
-			self.input_shape = [model.output_shape for model in self.pre]
-		else:
-			self.input_shape = input_shape
-		self.key = name
-		self.output = self.forward(pre)
+class Model(Node):
+  '''
+    Model interface, micro-unit of entire model representation. Layer, and
+    Sequence will subclasses. Variable is stored in a dict which contains
+    key, value pairs. Method forward should be implemented to compute the
+    output, while custom backward should be implemented in backward
+    function, with new gradient applied to optimizer. New operators are
+    implemented using C++ to define a new Operation if needed, in case
+    your model is difficult for arches to figure out its gradient.
+    memeber and data type:
+      pre: list.
+      post: list.
+      input_shape: not None if it is input layer.
+  '''
+  def __init__(self, key, type, input_shape = None):
+    super(Model, self).__init__(name)
+    self.elements = OrderedDict()
+    self.type = type
+    self.initializer = initializer
+    self.input_shape = input_shape
 
-	def _list(x):
-		if x == None:
-			l = None
-		elif isinstance(x, list):
-			l = x
-		else:
-			l = [x]
-		return l
+  @property
+  def output_shape(self):
+    return self.get_output_shape_for(self.input_shape)
 
-	@property
-	def output_shape(self):
-		return self.get_output_shape_for(self.input_shape)
+  def forward(self, inputs):
+    '''
+      method define forward expression.
+    '''
+    raise NotImplementedError
 
-	def forward(self, input):
-		'''
-			'forward' function uses self.variables as inputs, no other
-			variable could be used. The output could be a variable or a list
-			of variable. This method must be implemented for any model based
-			subclasses.
-		'''
-		pass
+  @property
+  def grad(self):
+    '''
+      method define backward gradient, i.e., define $\frac{\partial L}{\partial f_i}$
+      if grad is none, return grad from arch
+      if grad is not none, return custom gradient.
+    '''
+    raise NotImplementedError
 
-	def backward(self, cost):
-		# return the gradient of newly designed backward algorithm.
-		return None
+  def get_variables(trainable = None):
+    if type(x) == Model:
+      lvar = [x.get_variables(trainable) for x in self.elements.values()]
+    else:
+      lvar = [x for x in self.elements.values() if x.trainable == trainable]
+    return lvar
 
-
-	def grad(self):
-		return arch.grad([self.variables[key] for key in self.variables], output)
-
-	def set_local_para(self, paras):
-		for key, value in paras.iteritems():
-			self.variables[key].set_value(value)
-
-	def get_local_para(self):
-		return {key : var.get_value() for (key, var) in self.variables.iteritems()}
-
-	def build(self, paras, initializer):
-		'''
-			The build function of model, including define forward function,
-			initializing parameters and connection.
-		'''
-		pass
-
-	def get_output_shape_for(self, input_shape):
-		# calculate output shape given input_shape which is a dict with key of
-		# input layer key and value the shape of the layer. Need to implement
-		# for new models.
-		pass
-
-	def get_local_shape(self):
-		return {key : value.get_shape() for key, value in self.variables.iteritems()}
+  def get_output_shape_for(self, input_shape):
+    # calculate output shape given input_shape which is a dict with key of
+    # input layer key and value the shape of the layer. Need to implement
+    # for new models.
+    raise NotImplementedError
 
 class Framework(DAG):
-	'''
-		models: list of models, with order of input, layer1, ..., layern. Output is computed using the forward of the last layer.
-		Parameters:
-			1. inputs, list of input layers;
-			2. models, other models except input;
-			3. optimizer, object of class Optimizer. Modify gradient if need before assigned here.
-			4. verbose type. 0 for no log, 1 - 3 for different output level.
-	'''
-	def __init__(self, inputs, models, optimizer, lr, verbose = 0):
-		self.models = {}
+  '''
+    models: list of models, with order of input, layer1, ..., layern. Output is computed using the forward of the last layer.
+    Parameters:
+      1. inputs, list of input layers;
+      2. models, other models except input;
+      3. optimizer, object of class Optimizer. Modify gradient if need before assigned here.
+      4. verbose type. 0 for no log, 1 - 3 for different output level.
+  '''
+  def __init__(self, optimizer, lr, verbose = 0):
+    super(Framework, self).__init__(models)
+    self.models = OrderedDict()
 
-		for input in inputs:
-			self.models[input.key] = input
-		for model in models:
-			self.models[model.key] = model
+    self.optimizer = optimizer
+    self.lr = lr
+    self.verbose = verbose
+    self.outputs = []
 
-		self.optimizer = optimizer
-		self.lr = lr
-		self.verbose = verbose
-		self.inputs = inputs
-		self.output = output
-		self.output_func = output_func
-		self.eval(arch.init_variable([ubasic.dict2list(model.get_local_para())
-			for model in self.models]))
+  def add_model(self, x, pre = None, post = None):
+    '''
+      A model's pre and post can be assigned before added to the 
+      framework while also able to finished during add_model. This
+      enables users to modify neural networkand change network
+      architectures during traing
+    '''
+    self.add_node(x)
+    if post != None:
+      for p in post:
+        self.add_edge(x, p)
+    if pre != None:
+      for p in pre:
+        self.add_edge(p, x)
 
-	# @TODO: make framework more flexible
-	def add(model, pre = None, post = None):
-		self.models.append(model)
-		if pre != None:
-			pre.post.append(model)
-		if post != None:
-			# @TODO implement validation if model is valid.
-			post.pre.append(model)
+  def erase_model(self, x):
+    self.erase_node(x)
 
-	# return mathematic expression.
-	@property
-	def output(self):
-		return [model.output for model in models if model.post == None]
+  def get_output(self):
+    output = []
+    for M in models.values():
+      if len(M.post) == 0:
+        output.append(M.get_output)
+    return output
 
-	@property
-	def output_func(self):
-		return arch.function(self.input, self.output)
+  def branch(x):
+    if len(x.pre) == 0:
+      return x.get_variables()
+    else:
+      incomings = [branch(p) for p in x.pre]
+      return x.forward(inputs)
 
-	@property
-	def predict(input):
-		# input is a dict structure.
-		return arch.eval(output, paras = input)
+  # return output shape value given input shape of layer key
+  def get_output_shape_for(self, key, input_shapes):
+    return self.models[key].get_output_shape_for(input_shapes)
 
-	# input_shape is 
-	def get_output_shape_for(self, input_shape):
-		keys = self.topology()
-		output_shape = {}
-		input_keys = [s for s in keys if s.startswith('input')]
-		node_keys = [s for s in keys if not s.startswith('input')]
-		for key in input_keys:
-			output_shape[key] = self.models[key].get_output_shape_for(input_shape[key])
+  # return output shape variable of layer key
+  def get_output_shape(self, key):
+    return self.models[key].get_output_shape()
 
-		for key in node_keys:
-			cur = self.models[key]
-			output_shape[key] = cur.get_output_shape_for(
-				{p.key : output[p.key] for p in cur.pre})
+  def get_variables(self, slim = True, trainable = False):
+    variables = []
+    models = self.models if slim == False else slim_arch()
+    for k, v in models:
+      variables += chain.from_iterable(v.get_variables())
+    return variables
 
-		return [output_shape[key] for key in self.models.keys() if self.models[key].post == None][0]
+  def slim_arch(self):
+    if len(self.outputs) > 0:
+      q = deque()
+      for v in self.outputs:
+        q.push(v)
+      layers = self.topology(self.outputs)
+      models = [self.models[k] for k in layers if layers[k] != -1]
+    else:
+      models = self.models
+    return models
 
-	def get_output_shape(self):
-		return [model.output_shape for model in self.models if model.post = None]
 
-	def train(self, dataset, learning_rate = 0.01, epochs = 1000,
-		eps = arch.EPS, early_stopping = False, decay = 0.1, **argv):
-		# dataset is an object of Trunk, with interface of next_batch.
-		opt = self.optimizer.minimize(self.output)
-		avg = 0
-		best_before = []
-		for epoch in range(epochs):
-			for i in range(dataset.total_batch):
-				batch = dataset.next_batch()
-				if self.lr == None
-					batch[self.lr] = linear_rate
-				arch.eval(opt, feed_dict = batch)
-				if self.verbose > 0:
-					avg += arch.eval(self.output, feed_dict = batch) / dataset.total_batch
+  def get_values(slim = True, trainable = False):
+    vars = self.get_variable(slim, trainable)
+    vals = []
+    for v in vars:
+      vals.append(v.get_value())
+    return vals
 
-			best_before.append(avg)
-			if argv['method'] == 1 and epoch % 50 == 0:
-				# decay each depc times
-				learning_rate *= decay
-			elif (argv['method'] == 2 and epoch % 10 == 0 and
-						min(best_before[-10 : -1]) < best_before[-1]):
-				# decay if not decrease for 5 epoch
-				learning_rate *= decay
-			print('Epoch %05d: cost %.9f' % (epoch, avg))
+  def save_values(fp):
+    vars = self.get_variables(slim = False)
+    
 
+  def load_values(fp):
+    pass
+
+  def load_models(fp):
+    pass
+
+  def save_models(fp):
+    pass
+
+  def draw(fp):
+    pass
+
+  def build(loss, targets, vals):
+    '''
+      build following items:
+        1. all output function of each layer
+        2. training function
+        3. validation function
+    '''
+    pass
+
+  def train(batchX, batchY):
+    pass
+
+  def forwards(batchX, layer):
+    pass
+
+  def predict(batchX):
+    pass

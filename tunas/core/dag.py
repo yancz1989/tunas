@@ -2,70 +2,69 @@
 # @Author: yancz1989
 # @Date:   2016-05-20 14:19:18
 # @Last Modified by:   yancz1989
-# @Last Modified time: 2016-05-20 17:24:58
+# @Last Modified time: 2016-11-23 17:08:26
+
+from collections import deque, OrderedDict
+
+class EmptyKeyError(Exception):
+  def __init__(self, message):
+    super(EmptyKeyError, self).__init__('Empty variable name found. Please add one!')
 
 class Node(object):
-    def __init__(self, name):
-        assert name != None and name != ''
-        self.pre = None
-        self.post = None
-        self.key = name
+  def __init__(self, key):
+    if key == None or key == '':
+      raise EmptyKeyError
+    self.inputs = []
+    self.outputs = []
+    self.key = key
 
 class DirectedAcyclicGraph(object):
-    '''
-        Inside Node class, name is the unique global identity within group of nodes. You must make sure there are only one node with in a dag named as you give.
-        Initial with a dict of nodes.
-    '''
-    def __init__(self, nodes):
-        self.nodes = nodes
+  '''
+    Inside Node class, name is the unique global identity within group of nodes. You must make sure there are only one node with in a dag named as you give.
+    Initial with a dict of nodes.
+  '''
+  def __init__(self, nodes):
+    if nodes != None:
+      self.nodes = {k : nodes[k] for k in nodes}
+    else:
+      self.nodes = OrderedDict()
 
-    def insert(node, pre, post):
-        pre = self.nodes[pre]
-        post = self.nodes[post]
-        del pre.post[pre.post.index(post)]
-        del post.pre[post.pre.index[pre]]
-        pre.post.append(node)
-        post.pre.append(node)
+  def add_node(self, x):
+    nodes[x.key] = x
 
-    def remove(node):
-        del node.pre.post[node]
-        del node.post.pre[node]
+  # add edge u->v
+  def add_edge(self, u, v):
+    u.outputs.append(v)
+    v.inputs.append(u)
 
-    def valid():
-        # find out whether current nodes form a dag.
-        queue = [self.nodes[key] for key in self.nodes.keys() if key.startswith('input')]
-        visited = {key : 0 for key in self.nodes.keys}
-        cnt = 0
-        while len(queue) != 0:
-            cur = queue.pop(0)
-            if visited[cur.key] == 0:
-                visited[cur.key] = 1
-            else:
-                raise Exception('Error! Cycle found in DAG object.')
-            cnt = cnt + 1
-            if cur.post != None:
-                queue += cur.post
-        return cnt == len(self.nodes)
+  def erase_node(self, x):
+    x.inputs.outputs.remove(x)
+    x.outputs.inputs.remove(x)
 
-    def _duplicate_graph_():
-        nodes = {key : Node() for key in self.nodes}
-        for (node, key] in zip(nodes, self.nodes.keys()):
-            node.pre = [nodes[p.key] for p in self.nodes[key].pre]
-            node.post = [nodes[p.key] for p in self.nodes[key].post]
-        return nodes
+  def erase_edge(self, u, v):
+    u.outputs.remove(v)
+    v.inputs.remove(u)
 
-    def topology(self):
-        if self.valid():
-            graph = self._duplicate_graph_()
-            q = [self.nodes[key] for key in self.nodes.keys() if key.startswith('input')]
-            seq = []
-            while len(seq) != 0:
-                top = seq.pop(0)
-                seq.append(top.key)
-                for p in top.post:
-                    del p.pre[p.pre.index(top)]
-                    if len(p.pre) == 0:
-                        q.append(p)
+  def topology(output_layers = None):
+    # find out whether current nodes form a dag.
+    stack = deque()
+    layers = OrderedDict({key : -1 for key in self.nodes.keys()})
+    if output_layers == None:
+      for v in output_layers:
+        stack.push(v)
+        layers[v.key] = 0
+    else:
+      for k, v in self.nodes.iteritems():
+        if len(v.outputs) == 0:
+          stack.push(v)
+          layers[k] = 0
+    while stack:
+      u = stack[-1]
+      stack.pop()
+      for v in u.inputs:
+        if visited[v.key] != -1:
+          layers[v.key] = max(layers[v.key], layers[u.key] + 1)
+          stack.append(v)
         else:
-            seq = None
-        return seq
+          raise Exception('Circle detected in node ' + v.key + '.')
+    return layers
